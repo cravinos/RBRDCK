@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import styled from 'styled-components';
 
 // Define the structure of a project
 interface Project {
@@ -7,32 +8,58 @@ interface Project {
   url: string;
 }
 
-const Projects = () => {
-  // Use the Project[] type to define the state
+const ProjectsContainer = styled.div`
+  padding: 2rem;
+  background-color: #f7fafc;
+`;
+
+const Title = styled.h1`
+  font-size: 2rem;
+  font-weight: bold;
+  color: #2d3748;
+`;
+
+const ProjectList = styled.ul`
+  list-style: none;
+  padding: 0;
+`;
+
+const ProjectItem = styled.li`
+  margin-bottom: 1rem;
+`;
+
+const ProjectLink = styled.a`
+  color: #1a202c;
+  text-decoration: none;
+  &:hover {
+    color: #e53e3e;
+  }
+`;
+
+const Projects: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
 
   useEffect(() => {
     axios.get('http://localhost:8000/projects')
       .then(response => {
-        console.log(response.data.projects);  // Debugging: Print the response data
         setProjects(response.data.projects);
       })
       .catch(error => console.error('Error fetching projects:', error));
   }, []);
 
   return (
-    <div>
-      <h1>User Projects</h1>
-      <ul>
-        {projects.map(project => (
-          <li key={project.name}>
-            <a href={project.url} target="_blank" rel="noopener noreferrer">
+    <ProjectsContainer>
+      <Title>User Projects</Title>
+      <ProjectList>
+        {projects.map((project) => (
+          <ProjectItem key={project.name}>
+            <ProjectLink href={project.url} target="_blank" rel="noopener noreferrer">
               {project.name}
-            </a>
-          </li>
+            </ProjectLink>
+          </ProjectItem>
         ))}
-      </ul>
-    </div>
+      </ProjectList>
+    </ProjectsContainer>
   );
 };
 
