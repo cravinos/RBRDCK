@@ -1,0 +1,11 @@
+2024-10-18 14:45:07,717 - INFO - Reviewing PR #1: testing RBRDCK Pull req 
+2024-10-18 14:45:07,909 - ERROR - Error communicating with the LLM: 400 Client Error: Bad Request for url: http://localhost:11434/v1/chat/completions
+2024-10-18 14:45:08,354 - INFO - Posted review for PR #1
+2024-10-18 14:45:33,886 - INFO - Reviewing PR #1: testing RBRDCK Pull req 
+2024-10-18 14:45:34,066 - ERROR - Error communicating with the LLM: 400 Client Error: Bad Request for url: http://localhost:11434/v1/chat/completions
+2024-10-18 14:45:34,540 - INFO - Posted review for PR #1
+2024-10-18 14:45:40,972 - INFO - Reviewing PR #1: testing RBRDCK Pull req 
+2024-10-18 14:45:41,156 - ERROR - Error communicating with the LLM: 404 Client Error: Not Found for url: http://localhost:11434/v1/generate
+2024-10-18 14:45:41,635 - INFO - Posted review for PR #1
+2024-10-18 14:45:48,754 - INFO - Reviewing PR #1: testing RBRDCK Pull req 
+2024-10-18 14:46:12,909 - INFO - Reviewing PR #1: testing RBRDCK Pull req 
