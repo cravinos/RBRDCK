@@ -9,3 +9,27 @@
 2024-10-18 14:45:41,635 - INFO - Posted review for PR #1
 2024-10-18 14:45:48,754 - INFO - Reviewing PR #1: testing RBRDCK Pull req 
 2024-10-18 14:46:12,909 - INFO - Reviewing PR #1: testing RBRDCK Pull req 
+2024-10-18 15:59:11,285 - INFO - Reviewing PR #1: readme
+2024-10-18 15:59:15,879 - ERROR - LLM returned an empty response
+2024-10-18 15:59:16,266 - INFO - Posted general comment for PR #1
+2024-10-18 15:59:51,594 - INFO - Reviewing PR #1: readme
+2024-10-18 16:00:47,920 - INFO - Posted general comment for PR #1
+2024-10-18 16:02:07,225 - INFO - Reviewing PR #1: readme
+2024-10-18 16:02:49,419 - INFO - Posted general comment for PR #1
+2024-10-18 16:17:54,716 - INFO - Reviewing PR #1: readme
+2024-10-18 16:17:55,076 - ERROR - Error processing PR #1: name 'get_previous_comments' is not defined
+Traceback (most recent call last):
+  File "/Users/santiagocravino/Documents/llmcli/main.py", line 64, in main
+    previous_comments = get_previous_comments(pr)
+NameError: name 'get_previous_comments' is not defined
+2024-10-18 16:18:10,243 - INFO - Reviewing PR #1: readme
+2024-10-18 16:19:20,942 - INFO - Posted general comment for PR #1
+2024-10-18 16:21:52,648 - INFO - Reviewing PR #1: readme
+2024-10-18 16:22:05,770 - ERROR - LLM returned an empty response
+2024-10-18 16:22:06,170 - INFO - Posted general comment for PR #1
+2024-10-18 16:23:00,308 - INFO - Reviewing PR #1: readme
+2024-10-18 16:23:05,239 - ERROR - LLM returned an empty response
+2024-10-18 16:23:05,665 - INFO - Posted general comment for PR #1
+2024-10-18 16:24:23,885 - INFO - Reviewing PR #1: readme
+2024-10-18 16:24:32,973 - ERROR - LLM returned an empty response
+2024-10-18 16:24:33,348 - INFO - Posted general comment for PR #1

@@ -1,2 +1,4 @@
 # .gitignore
 .env
+pr_reviewer.log
+__pycache__
