@@ -33,3 +33,4 @@ NameError: name 'get_previous_comments' is not defined
 2024-10-18 16:24:23,885 - INFO - Reviewing PR #1: readme
 2024-10-18 16:24:32,973 - ERROR - LLM returned an empty response
 2024-10-18 16:24:33,348 - INFO - Posted general comment for PR #1
+2024-10-18 17:34:14,516 - INFO - No open pull requests found.
