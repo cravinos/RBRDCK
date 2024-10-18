@@ -3,7 +3,7 @@
 import requests
 from typing import Optional, List
 import logging
-import json  # Import the json module to parse JSON responses
+import json
 from config import OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TEMPERATURE
 
 logger = logging.getLogger(__name__)
@@ -27,18 +27,22 @@ class OllamaLLM:
             data["stop"] = stop
 
         try:
+            logger.debug(f"Sending request to Ollama API. URL: {self.base_url}/api/generate")
+            logger.debug(f"Request data: {json.dumps(data, indent=2)}")
+            
             response = requests.post(
                 f"{self.base_url}/api/generate",
                 json=data,
                 headers=headers,
-                stream=True  # Enable streaming response
+                stream=True
             )
             response.raise_for_status()
-            # Collect the 'response' field from each JSON chunk
+            
             text = ''
             for line in response.iter_lines():
                 if line:
                     decoded_line = line.decode('utf-8').strip()
+                    logger.debug(f"Received line: {decoded_line}")
                     try:
                         json_line = json.loads(decoded_line)
                         text_chunk = json_line.get("response", "")
@@ -46,7 +50,13 @@ class OllamaLLM:
                     except json.JSONDecodeError as e:
                         logger.error(f"Error decoding JSON: {e}")
                         continue
+
+            if not text.strip():
+                logger.error("LLM returned an empty response")
+                return "Error: The language model returned an empty response."
+            
+            logger.debug(f"Final response: {text}")
             return text.strip()
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error communicating with the LLM: {e}")
-            return "Error generating review."
+            logger.error(f"Error communicating with the LLM: {e}", exc_info=True)
+            return f"Error generating review: {str(e)}"
