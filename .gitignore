@@ -2,3 +2,4 @@
 .env
 pr_reviewer.log
 __pycache__
+.env.local

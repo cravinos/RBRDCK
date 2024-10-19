@@ -10,8 +10,12 @@ load_dotenv()
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 if not GITHUB_TOKEN:
     raise ValueError("Please set your GitHub token in the .env file.")
-REPO_NAME = "cravinos/RBRDCK"  # Replace with your repository
-REPO_USER = "cravinos"
+REPO_USER = os.getenv("REPO_USER")
+REPO_NAME = os.getenv("REPO_NAME")
+if not REPO_USER:
+    raise ValueError("REPO_USER not set in environment variables")
+if not REPO_NAME:
+    raise ValueError("REPO_NAME not set in environment variables")
 
 # LLM Configuration
 OLLAMA_BASE_URL = "http://localhost:11434"  # Update if necessary

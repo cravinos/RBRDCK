@@ -9,7 +9,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { GitPullRequest, Users, AlertCircle } from "lucide-react"
+import { GitPullRequest, Users, AlertCircle, Folder } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface PullRequest {
   number: number
@@ -26,11 +27,18 @@ interface Organization {
   org_url: string
 }
 
+interface Repository {
+  name: string
+  url: string
+}
+
 export default function PullRequests() {
   const [prs, setPrs] = useState<PullRequest[]>([])
   const [repoPrs, setRepoPrs] = useState<RepoPullRequests[]>([])
   const [organizations, setOrganizations] = useState<Organization[]>([])
+  const [repositories, setRepositories] = useState<Repository[]>([])
   const [selectedPr, setSelectedPr] = useState<number | null>(null)
+  const [selectedRepo, setSelectedRepo] = useState<string | null>(null)
   const [review, setReview] = useState('')
   const [diff, setDiff] = useState('')
   const [cliOutput, setCliOutput] = useState<string | null>(null)
@@ -40,14 +48,16 @@ export default function PullRequests() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [prsResponse, orgsResponse] = await Promise.all([
+        const [prsResponse, orgsResponse, reposResponse] = await Promise.all([
           axios.get('http://localhost:8000/open_prs'),
-          axios.get('http://localhost:8000/user_groups')
+          axios.get('http://localhost:8000/user_groups'),
+          axios.get('http://localhost:8000/repos/')
         ])
         setPrs(prsResponse.data)
         setOrganizations(orgsResponse.data.organizations)
-      } catch (error) {
-        setError('Failed to fetch initial data')
+        setRepositories(reposResponse.data.repositories)
+      } catch (err) {
+        setError('Failed to fetch initial data: ' + (err instanceof Error ? err.message : String(err)))
       }
     }
     fetchData()
@@ -55,18 +65,28 @@ export default function PullRequests() {
 
   useEffect(() => {
     const fetchRepoPrs = async () => {
-      try {
-        const url = selectedOrg
-          ? `http://localhost:8000/org_pull_requests/${selectedOrg}`
-          : 'http://localhost:8000/repo_pull_requests'
-        const response = await axios.get(url)
-        setRepoPrs(response.data.repo_prs)
-      } catch (error) {
-        setError('Failed to fetch repository pull requests')
+      if (selectedRepo) {
+        try {
+          const response = await axios.get(`http://localhost:8000/repo_pull_requests/${selectedRepo}`)
+          setRepoPrs([response.data])
+        } catch (err) {
+          if (axios.isAxiosError(err) && err.response?.status === 404) {
+            setRepoPrs([{ repo_name: selectedRepo, pull_requests: [] }])
+          } else {
+            setError('Failed to fetch repository pull requests: ' + (err instanceof Error ? err.message : String(err)))
+          }
+        }
+      } else {
+        try {
+          const response = await axios.get('http://localhost:8000/repo_pull_requests')
+          setRepoPrs(response.data.repo_prs)
+        } catch (err) {
+          setError('Failed to fetch all pull requests: ' + (err instanceof Error ? err.message : String(err)))
+        }
       }
     }
     fetchRepoPrs()
-  }, [selectedOrg])
+  }, [selectedRepo])
 
   useEffect(() => {
     if (selectedPr !== null) {
@@ -75,8 +95,8 @@ export default function PullRequests() {
           const response = await axios.get(`http://localhost:8000/review_pr/${selectedPr}`)
           setReview(response.data.review)
           setDiff(response.data.diff)
-        } catch (error) {
-          setError('Failed to fetch review')
+        } catch (err) {
+          setError('Failed to fetch review: ' + (err instanceof Error ? err.message : String(err)))
         }
       }
       fetchReview()
@@ -87,8 +107,8 @@ export default function PullRequests() {
     try {
       const response = await axios.post(`http://localhost:8000/run_cli_review/${prNumber}`)
       setCliOutput(response.data.output)
-    } catch (error) {
-      setError('Failed to run CLI review')
+    } catch (err) {
+      setError('Failed to run CLI review: ' + (err instanceof Error ? err.message : String(err)))
     }
   }
 
@@ -107,6 +127,7 @@ export default function PullRequests() {
       <Tabs defaultValue="prs">
         <TabsList>
           <TabsTrigger value="prs">Pull Requests</TabsTrigger>
+          <TabsTrigger value="repos">Repositories</TabsTrigger>
           <TabsTrigger value="orgs">Organizations</TabsTrigger>
         </TabsList>
         <TabsContent value="prs">
@@ -167,6 +188,53 @@ export default function PullRequests() {
             </Card>
           )}
         </TabsContent>
+        <TabsContent value="repos">
+          <Card>
+            <CardHeader>
+              <CardTitle>Repositories</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Select onValueChange={(value) => setSelectedRepo(value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a repository" />
+                </SelectTrigger>
+                <SelectContent>
+                  {repositories.map((repo) => (
+                    <SelectItem key={repo.name} value={repo.name}>
+                      {repo.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedRepo && (
+                <ScrollArea className="h-[400px] mt-4">
+                  {repoPrs.map((repo) => (
+                    <div key={repo.repo_name} className="mb-4">
+                      <h3 className="text-lg font-semibold mb-2">{repo.repo_name}</h3>
+                      {repo.pull_requests.length > 0 ? (
+                        repo.pull_requests.map((pr) => (
+                          <div key={pr.number} className="flex items-center mb-2">
+                            <span className="mr-2">
+                              PR #{pr.number}: {pr.title}
+                            </span>
+                            <Button
+                              size="sm"
+                              onClick={() => runCliReview(pr.number)}
+                            >
+                              Run CLI Review
+                            </Button>
+                          </div>
+                        ))
+                      ) : (
+                        <p>No open pull requests for this repository.</p>
+                      )}
+                    </div>
+                  ))}
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
         <TabsContent value="orgs">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card className="md:col-span-1">
@@ -199,19 +267,23 @@ export default function PullRequests() {
                   {repoPrs.map(repo => (
                     <div key={repo.repo_name} className="mb-4">
                       <h3 className="text-lg font-semibold mb-2">{repo.repo_name}</h3>
-                      {repo.pull_requests.map(pr => (
-                        <div key={pr.number} className="flex items-center mb-2">
-                          <span className="mr-2">
-                            PR #{pr.number}: {pr.title}
-                          </span>
-                          <Button
-                            size="sm"
-                            onClick={() => runCliReview(pr.number)}
-                          >
-                            Run CLI Review
-                          </Button>
-                        </div>
-                      ))}
+                      {repo.pull_requests.length > 0 ? (
+                        repo.pull_requests.map(pr => (
+                          <div key={pr.number} className="flex items-center mb-2">
+                            <span className="mr-2">
+                              PR #{pr.number}: {pr.title}
+                            </span>
+                            <Button
+                              size="sm"
+                              onClick={() => runCliReview(pr.number)}
+                            >
+                              Run CLI Review
+                            </Button>
+                          </div>
+                        ))
+                      ) : (
+                        <p>No open pull requests for this repository.</p>
+                      )}
                     </div>
                   ))}
                 </ScrollArea>
