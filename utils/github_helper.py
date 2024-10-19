@@ -10,7 +10,7 @@ import re
 
 logger = logging.getLogger(__name__)
 
-def get_open_pull_requests(repo: Repository):
+def get_open_pull_requests(repo):
     try:
         pulls = repo.get_pulls(state='open', sort='created')
         return list(pulls)
