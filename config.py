@@ -7,15 +7,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # GitHub Configuration
-GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
-if not GITHUB_TOKEN:
-    raise ValueError("Please set your GitHub token in the .env file.")
-REPO_USER = os.getenv("REPO_USER")
-REPO_NAME = os.getenv("REPO_NAME")
-if not REPO_USER:
-    raise ValueError("REPO_USER not set in environment variables")
-if not REPO_NAME:
-    raise ValueError("REPO_NAME not set in environment variables")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+REPO_USER = "cravinos"  # User will for now manually type it 
+REPO_OWNER = 'cravinos'
+#REPO_NAME = # this needs to be relative to the PR the user is clicking on so we need to get rid of it here  
+GITHUB_API_URL = "https://api.github.com"
+FRONTEND_URL = "http://localhost:3000"
 
 # LLM Configuration
 OLLAMA_BASE_URL = "http://localhost:11434"  # Update if necessary

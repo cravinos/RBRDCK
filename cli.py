@@ -1,61 +1,39 @@
 # cli.py
 
 import argparse
-import logging
-from github import Github
-from config import GITHUB_TOKEN, REPO_NAME, LOG_FORMAT, LOG_LEVEL
 from utils.github_helper import (
-    get_open_pull_requests,
+    get_previous_comments,
     get_pull_request_diff,
-    post_review_comment,
-    get_previous_comments
+    generate_review,
+    post_review_comment
 )
-from llm.ollama_llm import OllamaLLM
-from prompts.prompt_templates import create_review_prompt
-
-def setup_logging():
-    logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
-    return logging.getLogger(__name__)
-
-logger = setup_logging()
-
-def review_pr(pr_number=None):
-    github_client = Github(GITHUB_TOKEN)
-    repo = github_client.get_repo(REPO_NAME)
-    llm = OllamaLLM()
-
-    if pr_number:
-        pull_requests = [repo.get_pull(pr_number)]
-    else:
-        pull_requests = get_open_pull_requests(repo)
-
-    for pr in pull_requests:
-        try:
-            logger.info(f"Reviewing PR #{pr.number}: {pr.title}")
-            diff = get_pull_request_diff(pr)
-            if not diff:
-                logger.warning(f"No diff found for PR #{pr.number}")
-                continue
-
-            previous_comments = get_previous_comments(pr)
-            prompt = create_review_prompt(diff, previous_comments)
-            review = llm.call(prompt)
-
-            if not review.strip():
-                logger.error(f"Empty review generated for PR #{pr.number}")
-                continue
-
-            post_review_comment(pr, review)
-            logger.info(f"Review posted for PR #{pr.number}")
-        except Exception as e:
-            logger.error(f"Error processing PR #{pr.number}: {e}", exc_info=True)
+from config import REPO_OWNER, GITHUB_TOKEN  # Ensure these are correctly defined
 
 def main():
-    parser = argparse.ArgumentParser(description="AI-powered Pull Request Reviewer")
-    parser.add_argument("--pr", type=int, help="PR number to review. If not provided, all open PRs will be reviewed.")
+    parser = argparse.ArgumentParser(description="Run CLI review for a GitHub PR.")
+    parser.add_argument('--repo', type=str, required=True, help='Repository name')
+    parser.add_argument('--pr', type=int, required=True, help='Pull Request number')
     args = parser.parse_args()
 
-    review_pr(args.pr)
+    repo_name = args.repo
+    pr_number = args.pr
+
+    try:
+        # Fetch previous comments
+        comments = get_previous_comments(repo_name, pr_number)
+
+        # Fetch PR diff
+        diff = get_pull_request_diff(repo_name, pr_number)
+
+        # Generate review using LLM
+        review = generate_review(diff)
+
+        # Post review comment
+        post_review_comment(repo_name, pr_number, review)
+
+        print("CLI review executed successfully.")
+    except Exception as e:
+        print(f"Error running CLI review: {e}")
 
 if __name__ == "__main__":
     main()

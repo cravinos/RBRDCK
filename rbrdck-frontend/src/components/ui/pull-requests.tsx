@@ -12,10 +12,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { GitPullRequest, Users, AlertCircle } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-
 interface PullRequest {
   number: number
   title: string
+  repo_name: string  // Added to associate PR with its repository
 }
 
 interface RepoPullRequests {
@@ -34,78 +34,84 @@ interface Repository {
 }
 
 export function PullRequests() {
-  const [prs, setPrs] = useState<PullRequest[]>([])
-  const [repoPrs, setRepoPrs] = useState<RepoPullRequests[]>([])
-  const [organizations, setOrganizations] = useState<Organization[]>([])
   const [repositories, setRepositories] = useState<Repository[]>([])
-  const [selectedPr, setSelectedPr] = useState<number | null>(null)
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null)
-  const [review, setReview] = useState('')
-  const [diff, setDiff] = useState('')
+  const [pullRequests, setPullRequests] = useState<PullRequest[]>([])
+  const [selectedPr, setSelectedPr] = useState<PullRequest | null>(null);
+  const [review, setReview] = useState<string>('');
+  const [diff, setDiff] = useState<string>('');
   const [cliOutput, setCliOutput] = useState<string | null>(null)
-  const [selectedOrg, setSelectedOrg] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [organizations, setOrganizations] = useState<Organization[]>([])
 
+  // Fetch repositories and organizations on initial load
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchInitialData = async () => {
       try {
-        const [prsResponse, orgsResponse, reposResponse] = await Promise.all([
-          axios.get('http://localhost:8000/open_prs'),
-          axios.get('http://localhost:8000/user_groups'),
-          axios.get('http://localhost:8000/repos')
+        const [reposResponse, orgsResponse] = await Promise.all([
+          axios.get('http://localhost:8000/repos/'),
+          axios.get('http://localhost:8000/user_groups')
         ])
-        setPrs(prsResponse.data)
-        setOrganizations(orgsResponse.data.organizations)
         setRepositories(reposResponse.data.repositories)
-      } catch (error) {
-        setError('Failed to fetch initial data: ' + (error instanceof Error ? error.message : String(error)))
+        setOrganizations(orgsResponse.data.organizations)
+      } catch (err) {
+        setError('Failed to fetch initial data: ' + (err instanceof Error ? err.message : String(err)))
       }
     }
-    fetchData()
+    fetchInitialData()
   }, [])
 
+  // Fetch pull requests when a repository is selected
   useEffect(() => {
-    const fetchRepoPrs = async () => {
-      try {
-        let response;
-        if (selectedRepo) {
-          response = await axios.get(`http://localhost:8000/repo_pull_requests/${selectedRepo}`)
-          setRepoPrs([response.data])
-        } else if (selectedOrg) {
-          response = await axios.get(`http://localhost:8000/org_pull_requests/${selectedOrg}`)
-          setRepoPrs(response.data.repo_prs)
-        } else {
-          response = await axios.get('http://localhost:8000/repo_pull_requests')
-          setRepoPrs(response.data.repo_prs)
-        }
-      } catch (error) {
-        setError('Failed to fetch pull requests: ' + (error instanceof Error ? error.message : String(error)))
-      }
-    }
-    fetchRepoPrs()
-  }, [selectedRepo, selectedOrg])
-
-  useEffect(() => {
-    if (selectedPr !== null) {
-      const fetchReview = async () => {
+    const fetchPullRequests = async () => {
+      if (selectedRepo) {
         try {
-          const response = await axios.get(`http://localhost:8000/review_pr/${selectedPr}`)
-          setReview(response.data.review)
-          setDiff(response.data.diff)
-        } catch (error) {
-          setError('Failed to fetch review: ' + (error instanceof Error ? error.message : String(error)))
+          const response = await axios.get(`http://localhost:8000/repo_pull_requests/${selectedRepo}`)
+          const prs: RepoPullRequests = response.data
+          // Associate repo_name with each PR
+          const enrichedPrs: PullRequest[] = prs.pull_requests.map(pr => ({
+            ...pr,
+            repo_name: prs.repo_name
+          }))
+          setPullRequests(enrichedPrs)
+        } catch (err) {
+          setError('Failed to fetch pull requests: ' + (err instanceof Error ? err.message : String(err)))
         }
+      } else {
+        setPullRequests([])
       }
-      fetchReview()
     }
-  }, [selectedPr])
+    fetchPullRequests()
+  }, [selectedRepo])
 
+  // Fetch review and diff when a PR is selected
+  useEffect(() => {
+    const fetchReviewAndDiff = async () => {
+      if (selectedPr) {
+        try {
+          const response = await axios.get(
+            `http://localhost:8000/review_pr/${selectedPr.repo_name}/${selectedPr.number}`
+          );
+          setReview(response.data.review);
+          setDiff(response.data.diff);
+        } catch (err) {
+          setError('Failed to fetch review: ' + (err instanceof Error ? err.message : String(err)));
+        }
+      } else {
+        setReview('');
+        setDiff('');
+      }
+    };
+    fetchReviewAndDiff();
+  }, [selectedPr]);
+
+  // Function to run CLI review for a specific PR
   const runCliReview = async (prNumber: number) => {
     try {
       const response = await axios.post(`http://localhost:8000/run_cli_review/${prNumber}`)
       setCliOutput(response.data.output)
-    } catch (error) {
-      setError('Failed to run CLI review: ' + (error instanceof Error ? error.message : String(error)))
+    } catch (err) {
+      setError('Failed to run CLI review: ' + (err instanceof Error ? err.message : String(err)))
     }
   }
 
@@ -127,43 +133,72 @@ export function PullRequests() {
           <TabsTrigger value="repos">Repositories</TabsTrigger>
           <TabsTrigger value="orgs">Organizations</TabsTrigger>
         </TabsList>
+
+        {/* Pull Requests Tab */}
         <TabsContent value="prs">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Repository Selection */}
+            <Card className="md:col-span-1">
+              <CardHeader>
+                <CardTitle>Select Repository</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Select onValueChange={(value) => setSelectedRepo(value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a repository" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {repositories.map(repo => (
+                      <SelectItem key={repo.name} value={repo.name}>
+                        {repo.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+
+            {/* List of Open Pull Requests */}
             <Card className="md:col-span-1">
               <CardHeader>
                 <CardTitle>Open Pull Requests</CardTitle>
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-[300px]">
-                  {prs.map(pr => (
-                    <div key={pr.number} className="flex items-center mb-2">
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start"
-                        onClick={() => setSelectedPr(pr.number)}
-                      >
-                        <GitPullRequest className="mr-2 h-4 w-4" />
-                        PR #{pr.number}: {pr.title}
-                      </Button>
-                    </div>
-                  ))}
+                  {pullRequests.length > 0 ? (
+                    pullRequests.map(pr => (
+                      <div key={pr.number} className="flex items-center mb-2">
+                        <Button
+                          variant="outline"
+                          className="w-full justify-start"
+                          onClick={() => setSelectedPr(pr)}
+                        >
+                          <GitPullRequest className="mr-2 h-4 w-4" />
+                          PR #{pr.number}: {pr.title} <span className="text-sm text-gray-500 ml-2">({pr.repo_name})</span>
+                        </Button>
+                      </div>
+                    ))
+                  ) : (
+                    <p>No open pull requests found.</p>
+                  )}
                 </ScrollArea>
               </CardContent>
             </Card>
 
-            <Card className="md:col-span-2">
+            {/* Review and Diff Section */}
+            <Card className="md:col-span-1">
               <CardHeader>
-                <CardTitle>{selectedPr ? `Review for PR #${selectedPr}` : 'Select a PR'}</CardTitle>
+                <CardTitle>{selectedPr ? `Review for PR #${selectedPr.number}` : 'Select a PR'}</CardTitle>
               </CardHeader>
               <CardContent>
                 {selectedPr ? (
                   <>
-                    <p className="mb-4">{review}</p>
+                    <p className="mb-4">{review || 'Loading review...'}</p>
                     <h3 className="text-lg font-semibold mb-2">Diff</h3>
                     <SyntaxHighlighter language="diff" style={docco}>
-                      {diff}
+                      {diff || 'Loading diff...'}
                     </SyntaxHighlighter>
-                    <Button className="mt-4" onClick={() => runCliReview(selectedPr)}>
+                    <Button className="mt-4" onClick={() => runCliReview(selectedPr.number)}>
                       Run CLI Review
                     </Button>
                   </>
@@ -174,6 +209,7 @@ export function PullRequests() {
             </Card>
           </div>
 
+          {/* CLI Output Section */}
           {cliOutput && (
             <Card className="mt-6">
               <CardHeader>
@@ -185,100 +221,55 @@ export function PullRequests() {
             </Card>
           )}
         </TabsContent>
+
+        {/* Repositories Tab */}
         <TabsContent value="repos">
           <Card>
             <CardHeader>
               <CardTitle>Repositories</CardTitle>
             </CardHeader>
             <CardContent>
-              <Select onValueChange={(value) => setSelectedRepo(value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a repository" />
-                </SelectTrigger>
-                <SelectContent>
-                  {repositories.map((repo) => (
-                    <SelectItem key={repo.name} value={repo.name}>
-                      {repo.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedRepo && (
-                <ScrollArea className="h-[400px] mt-4">
-                  {repoPrs.map((repo) => (
-                    <div key={repo.repo_name} className="mb-4">
-                      <h3 className="text-lg font-semibold mb-2">{repo.repo_name}</h3>
-                      {repo.pull_requests.map((pr) => (
-                        <div key={pr.number} className="flex items-center mb-2">
-                          <span className="mr-2">
-                            PR #{pr.number}: {pr.title}
-                          </span>
-                          <Button
-                            size="sm"
-                            onClick={() => runCliReview(pr.number)}
-                          >
-                            Run CLI Review
-                          </Button>
-                        </div>
-                      ))}
+              <ScrollArea className="h-[400px]">
+                {repositories.length > 0 ? (
+                  repositories.map(repo => (
+                    <div key={repo.name} className="mb-4">
+                      <h3 className="text-lg font-semibold mb-2">{repo.name}</h3>
+                      <a href={repo.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">
+                        View on GitHub
+                      </a>
                     </div>
-                  ))}
-                </ScrollArea>
-              )}
+                  ))
+                ) : (
+                  <p>No repositories found.</p>
+                )}
+              </ScrollArea>
             </CardContent>
           </Card>
         </TabsContent>
-        <TabsContent value="orgs">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Card className="md:col-span-1">
-              <CardHeader>
-                <CardTitle>Organizations & Teams</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[300px]">
-                  {organizations.map(org => (
-                    <Button
-                      key={org.org_name}
-                      variant="outline"
-                      className="w-full justify-start mb-2"
-                      onClick={() => setSelectedOrg(org.org_name)}
-                    >
-                      <Users className="mr-2 h-4 w-4" />
-                      {org.org_name}
-                    </Button>
-                  ))}
-                </ScrollArea>
-              </CardContent>
-            </Card>
 
-            <Card className="md:col-span-2">
-              <CardHeader>
-                <CardTitle>Pull Requests from All Repositories</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[400px]">
-                  {repoPrs.map(repo => (
-                    <div key={repo.repo_name} className="mb-4">
-                      <h3 className="text-lg font-semibold mb-2">{repo.repo_name}</h3>
-                      {repo.pull_requests.map(pr => (
-                        <div key={pr.number} className="flex items-center mb-2">
-                          <span className="mr-2">
-                            PR #{pr.number}: {pr.title}
-                          </span>
-                          <Button
-                            size="sm"
-                            onClick={() => runCliReview(pr.number)}
-                          >
-                            Run CLI Review
-                          </Button>
-                        </div>
-                      ))}
+        {/* Organizations Tab */}
+        <TabsContent value="orgs">
+          <Card>
+            <CardHeader>
+              <CardTitle>Organizations & Teams</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="h-[400px]">
+                {organizations.length > 0 ? (
+                  organizations.map(org => (
+                    <div key={org.org_name} className="mb-4">
+                      <h3 className="text-lg font-semibold mb-2">{org.org_name}</h3>
+                      <a href={org.org_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">
+                        Visit Organization
+                      </a>
                     </div>
-                  ))}
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </div>
+                  ))
+                ) : (
+                  <p>No organizations found.</p>
+                )}
+              </ScrollArea>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

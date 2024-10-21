@@ -1,3 +1,5 @@
-python-dotenv
-PyGithub
-requests
+fastapi
+uvicorn
+httpx
+pydantic
+python-dotenv  # If using dotenv
