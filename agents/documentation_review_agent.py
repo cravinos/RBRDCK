@@ -1,4 +1,5 @@
 # agents/documentation_review_agent.py
+from github.PullRequest import PullRequest
 
 from llm.ollama_llm import OllamaLLM
 import logging
