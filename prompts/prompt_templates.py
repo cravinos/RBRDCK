@@ -55,3 +55,27 @@ def create_review_prompt(diff: str, previous_comments: str) -> str:
     Please proceed with your review."""
 
     return prompt
+def create_documentation_review_prompt(diff: str, previous_comments: str) -> str:
+    prompt = f"""
+    You are an expert documentation reviewer. Your task is to ensure that all code changes are properly documented.
+
+    **Review Objectives:**
+    - **Inline Comments:** Check if new or modified code includes appropriate inline comments.
+    - **README Updates:** Ensure that the README file is updated to reflect significant changes or new features.
+    - **Documentation Standards:** Verify adherence to the project's documentation standards and guidelines.
+
+    **Context:**
+    Previous comments on this pull request:
+    {previous_comments}
+
+    **Code Diff for Documentation Review:**
+    {diff}
+
+    **Instructions:**
+    - Identify areas where documentation is lacking or could be improved.
+    - Provide specific suggestions for enhancing documentation.
+    - Use GitHub's suggestion block for code/documentation changes.
+
+    Please provide your review below:
+    """
+    return prompt
