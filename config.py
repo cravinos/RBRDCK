@@ -1,5 +1,4 @@
 # config.py
-
 import os
 from dotenv import load_dotenv
 
@@ -9,15 +8,13 @@ load_dotenv()
 # GitHub Configuration
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 if not GITHUB_TOKEN:
-    raise ValueError("Please set your GitHub token in the .env file.")
-REPO_NAME = "cravinos/RBRDCK"  # Replace with your repository
-REPO_USER = "cravinos"
+    raise ValueError("Please set your GitHub token in the .env file")
 
 # LLM Configuration
-OLLAMA_BASE_URL = "http://localhost:11434"  # Update if necessary
-OLLAMA_MODEL = "llama3:latest"  # Replace with your installed model
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_MODEL = "llama3:latest"
 OLLAMA_TEMPERATURE = 0.2
 
 # Logging Configuration
 LOG_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
-LOG_LEVEL = 'INFO'  # Set to 'DEBUG' for more verbosity
+LOG_LEVEL = 'INFO'
