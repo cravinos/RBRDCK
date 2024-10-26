@@ -1,5 +1,5 @@
 # cli.py
-
+from typing import Dict, List, Optional
 import argparse
 import logging
 from github import Github
@@ -14,15 +14,17 @@ from agents.documentation_review_agent import DocumentationReviewAgent
 from agents.code_quality_agent import CodeQualityAgent
 from agents.test_coverage_agent import TestCoverageAgent
 from agents.dependency_review_agent import DependencyReviewAgent
-from typing import List, Optional
 
 def setup_logging():
+    """Configures logging for the application."""
     logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
     return logging.getLogger(__name__)
 
 logger = setup_logging()
 
 class ReviewManager:
+    """Manages the review process across different review agents."""
+    
     def __init__(self):
         self.github_client = Github(GITHUB_TOKEN)
         self.repo = self.github_client.get_repo(REPO_NAME)
@@ -71,13 +73,24 @@ class ReviewManager:
                     try:
                         self._perform_review(pr, diff, previous_comments, review_type)
                     except Exception as e:
-                        logger.error(f"Error performing {review_type} review for PR #{pr.number}: {e}", exc_info=True)
+                        logger.error(
+                            f"Error performing {review_type} review for PR #{pr.number}: {e}", 
+                            exc_info=True
+                        )
 
             except Exception as e:
                 logger.error(f"Error processing PR #{pr.number}: {e}", exc_info=True)
 
     def _perform_review(self, pr, diff: str, previous_comments: str, review_type: str):
-        """Performs a specific type of review on a pull request."""
+        """
+        Performs a specific type of review on a pull request.
+        
+        Args:
+            pr: Pull request object
+            diff: The pull request diff
+            previous_comments: Previous review comments
+            review_type: Type of review to perform
+        """
         logger.info(f"Performing {review_type} review for PR #{pr.number}")
         
         agent = self.agents[review_type]

@@ -1,48 +1,39 @@
 # agents/documentation_review_agent.py
-from github.PullRequest import PullRequest
-
-from llm.ollama_llm import OllamaLLM
+from typing import Dict, List
+from agents.base_review_agent import BaseReviewAgent
+from prompts.prompt_templates import create_documentation_review_prompt
 import logging
 
 logger = logging.getLogger(__name__)
 
-class DocumentationReviewAgent:
+class DocumentationReviewAgent(BaseReviewAgent):
+    """Agent for reviewing documentation changes and standards."""
+    
     def __init__(self):
-        self.llm = OllamaLLM()
-
+        super().__init__()
+        
     def review_documentation(self, diff: str, previous_comments: str) -> str:
-        prompt = self.create_documentation_prompt(diff, previous_comments)
-        try:
-            response = self.llm.call(prompt)
-            if not response.strip():
-                logger.error("Empty documentation review generated.")
-                return "Error: Documentation review returned an empty response."
-            return response
-        except Exception as e:
-            logger.error(f"Error generating documentation review: {e}", exc_info=True)
-            return f"Error generating documentation review: {str(e)}"
-
-    def create_documentation_prompt(self, diff: str, previous_comments: str) -> str:
-        prompt = f"""
-        You are an expert documentation reviewer. Your task is to ensure that all code changes are properly documented.
-
-        **Review Objectives:**
-        - **Inline Comments:** Check if new or modified code includes appropriate inline comments.
-        - **README Updates:** Ensure that the README file is updated to reflect significant changes or new features.
-        - **Documentation Standards:** Verify adherence to the project's documentation standards and guidelines.
-
-        **Context:**
-        Previous comments on this pull request:
-        {previous_comments}
-
-        **Code Diff for Documentation Review:**
-        {diff}
-
-        **Instructions:**
-        - Identify areas where documentation is lacking or could be improved.
-        - Provide specific suggestions for enhancing documentation.
-        - Use GitHub's suggestion block for code/documentation changes.
-
-        Please provide your review below:
         """
-        return prompt
+        Reviews documentation changes in the pull request.
+        
+        Args:
+            diff: The pull request diff
+            previous_comments: Previous review comments
+            
+        Returns:
+            str: The documentation review
+        """
+        # Get relevant files for documentation review
+        relevant_diffs = self.get_relevant_files(diff, [
+            '*.py', '*.js', '*.java',  # Source files
+            '*.md', '*.rst', '*.txt',  # Documentation files
+            'README*', 'CONTRIBUTING*', 'CHANGELOG*'  # Project docs
+        ])
+        
+        if not relevant_diffs:
+            return "No documentation-related changes found to review."
+            
+        formatted_diff = self.format_diff_for_review(relevant_diffs)
+        prompt = create_documentation_review_prompt(formatted_diff, previous_comments)
+        
+        return self.llm.call(prompt)

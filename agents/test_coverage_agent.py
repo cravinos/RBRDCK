@@ -1,22 +1,46 @@
-# agents/code_quality_agent.py
 # agents/test_coverage_agent.py
-
-from llm.ollama_llm import OllamaLLM
+from typing import Dict, List
+from agents.base_review_agent import BaseReviewAgent
 from github.PullRequest import PullRequest
-from utils.github_helper import get_test_coverage  # Add this import
+from utils.github_helper import get_test_coverage
 import logging
-from typing import Dict
 
 logger = logging.getLogger(__name__)
 
-class TestCoverageAgent:
+class TestCoverageAgent(BaseReviewAgent):
+    """Agent for reviewing test coverage and suggesting test improvements."""
+
     def __init__(self):
-        self.llm = OllamaLLM()
+        super().__init__()
 
     def review_test_coverage(self, pr: PullRequest, diff: str, previous_comments: str) -> str:
+        """
+        Reviews test coverage in the pull request.
+        
+        Args:
+            pr: The pull request object
+            diff: The pull request diff
+            previous_comments: Previous review comments
+            
+        Returns:
+            str: The test coverage review
+        """
         try:
+            # Get relevant files for test coverage review
+            relevant_diffs = self.get_relevant_files(diff, [
+                '*.py', '*.js', '*.ts', '*.java',  # Source files
+                '*test*.py', '*_test.js', '*.test.ts', '*Test.java',  # Test files
+                'tests/*', '__tests__/*', 'test/*'  # Test directories
+            ])
+            
+            if not relevant_diffs:
+                return "No testable files found to review."
+
+            formatted_diff = self.format_diff_for_review(relevant_diffs)
+            
+            # Get test coverage analysis
             coverage_analysis = get_test_coverage(pr)
-            prompt = self.create_test_coverage_prompt(diff, previous_comments, coverage_analysis)
+            prompt = self.create_test_coverage_prompt(formatted_diff, previous_comments, coverage_analysis)
             
             response = self.llm.call(prompt)
             if not response.strip():
@@ -28,62 +52,40 @@ class TestCoverageAgent:
             return f"Error generating test coverage review: {str(e)}"
 
     def create_test_coverage_prompt(self, diff: str, previous_comments: str, analysis: Dict) -> str:
+        """Creates a prompt for test coverage review."""
         prompt = f"""
         You are an expert test coverage reviewer. Your task is to ensure adequate test coverage for code changes.
 
         **Coverage Analysis:**
         {self._format_coverage_summary(analysis.get('summary', {}))}
 
-        Untested Files:
-        {self._format_untested_files(analysis.get('untested_files', []))}
-
-        Coverage Gaps:
-        {self._format_coverage_gaps(analysis.get('coverage_gaps', []))}
+        **Files Changed:**
+        {diff}
 
         **Context:**
         Previous comments on this pull request:
         {previous_comments}
 
-        **Code Diff for Review:**
-        {diff}
-
         **Instructions:**
-        1. Review the test coverage analysis
+        1. Review the test coverage analysis and changed files
         2. Identify areas requiring additional tests:
            - New functionality without tests
            - Modified code without corresponding test updates
            - Edge cases that should be tested
         3. Provide specific test suggestions using code blocks
         4. Include example test cases where helpful
-        5. Suggest test structure improvements
-
-        Format your review with specific suggestions for new tests or test improvements.
-        For each suggestion:
-        - **Issue Description**
-
-        ```suggestion
-        Your suggested test code
-        ```
-
-        **File:** `file_path`
-
-        **Line:** line_number
 
         Please provide your review below:
         """
         return prompt
 
     def _format_coverage_summary(self, summary: Dict) -> str:
+        """Formats the coverage summary for the prompt."""
         return f"""
         - Total Source Files: {summary.get('total_source_files', 0)}
         - Total Test Files: {summary.get('total_test_files', 0)}
         - Test Coverage Ratio: {summary.get('test_coverage_ratio', 0):.2f}
         - Untested Files: {summary.get('untested_files_count', 0)}
         - New Tests Added: {'Yes' if summary.get('has_new_tests', False) else 'No'}
+        - Coverage Gaps: {summary.get('coverage_gaps_count', 0)}
         """
-
-    def _format_untested_files(self, untested_files: list) -> str:
-        return "\n".join([f"- {file}" for file in untested_files]) if untested_files else "No untested files detected."
-
-    def _format_coverage_gaps(self, gaps: list) -> str:
-        return "\n".join([f"- {gap['file']}: {gap['suggestion']}" for gap in gaps]) if gaps else "No specific coverage gaps det"
