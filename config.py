@@ -16,7 +16,7 @@ REPO_USER = "cravinos"
 # LLM Configuration
 OLLAMA_BASE_URL = "http://localhost:11434"  # Update if necessary
 OLLAMA_MODEL = "llama3:latest"  # Replace with your installed model
-OLLAMA_TEMPERATURE = 0.0
+OLLAMA_TEMPERATURE = 0.2
 
 # Logging Configuration
 LOG_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
