@@ -11,7 +11,11 @@ from utils.github_helper import (
     get_previous_comments
 )
 from llm.ollama_llm import OllamaLLM
-from prompts.prompt_templates import create_review_prompt
+from prompts.prompt_templates import (
+    create_review_prompt,
+    create_documentation_review_prompt
+)
+from agents.documentation_review_agent import DocumentationReviewAgent
 
 # Configure logging to output to both console and file
 def setup_logging():
@@ -39,19 +43,37 @@ def setup_logging():
 # Call setup_logging at the start of your script
 logger = setup_logging()
 
-def main():
-    # Initialize GitHub client
+def setup_agents():
+    llm = OllamaLLM()
+    documentation_agent = DocumentationReviewAgent()
+    return llm, documentation_agent
+
+def perform_code_review(pr, diff, previous_comments, llm):
+    code_review_prompt = create_review_prompt(diff, previous_comments)
+    code_review = llm.call(code_review_prompt)
+    if code_review.strip():
+        post_review_comment(pr, f"**Code Review:**\n\n{code_review}")
+        logger.info(f"Posted code review for PR #{pr.number}")
+    else:
+        logger.warning(f"No code review generated for PR #{pr.number}")
+
+def perform_documentation_review(pr, diff, previous_comments, documentation_agent):
+    documentation_review = documentation_agent.review_documentation(diff, previous_comments)
+    if documentation_review.strip():
+        post_review_comment(pr, f"**Documentation Review:**\n\n{documentation_review}")
+        logger.info(f"Posted documentation review for PR #{pr.number}")
+    else:
+        logger.warning(f"No documentation review generated for PR #{pr.number}")
+
+def review_pr(pr_number=None, review_docs=False):
     github_client = Github(GITHUB_TOKEN)
     repo = github_client.get_repo(REPO_NAME)
+    llm, documentation_agent = setup_agents()
 
-    # Get open pull requests
-    pull_requests = get_open_pull_requests(repo)
-    if not pull_requests:
-        logger.info("No open pull requests found.")
-        return
-
-    # Initialize LLM
-    llm = OllamaLLM()
+    if pr_number:
+        pull_requests = [repo.get_pull(pr_number)]
+    else:
+        pull_requests = get_open_pull_requests(repo)
 
     for pr in pull_requests:
         try:
@@ -65,22 +87,23 @@ def main():
             previous_comments = get_previous_comments(pr)
             logger.debug(f"Fetched previous comments for PR #{pr.number}")
 
-            # Create prompt for LLM
-            prompt = create_review_prompt(diff, previous_comments)
-            logger.debug(f"Generated prompt for PR #{pr.number}: {prompt[:100]}...")  # Log the first 100 characters of the prompt
+            # Perform Code Review
+            perform_code_review(pr, diff, previous_comments, llm)
 
-            # Get LLM's review
-            review = llm.call(prompt)
-            logger.debug(f"LLM Review for PR #{pr.number}: {review[:100]}...")  # Log the first 100 characters of the review
+            # Perform Documentation Review if enabled
+            if review_docs:
+                perform_documentation_review(pr, diff, previous_comments, documentation_agent)
 
-            if not review.strip():
-                logger.error(f"Empty review generated for PR #{pr.number}")
-                continue
-
-            # Post review comment
-            post_review_comment(pr, review)
         except Exception as e:
             logger.error(f"Error processing PR #{pr.number}: {e}", exc_info=True)
+
+def main():
+    parser = argparse.ArgumentParser(description="AI-powered Pull Request Reviewer")
+    parser.add_argument("--pr", type=int, help="PR number to review. If not provided, all open PRs will be reviewed.")
+    parser.add_argument("--review-docs", action="store_true", help="Enable documentation review")
+    args = parser.parse_args()
+
+    review_pr(args.pr, args.review_docs)
 
 if __name__ == "__main__":
     main()
