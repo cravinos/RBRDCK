@@ -10,10 +10,7 @@ from utils.github_helper import (
     post_review_comment,
     get_previous_comments
 )
-from agents.documentation_review_agent import DocumentationReviewAgent
-from agents.code_quality_agent import CodeQualityAgent
-from agents.test_coverage_agent import TestCoverageAgent
-from agents.dependency_review_agent import DependencyReviewAgent
+from agents.review_orchestrator import ReviewOrchestrator, ReviewContext
 
 def setup_logging():
     """Configures logging for the application."""
@@ -23,25 +20,19 @@ def setup_logging():
 logger = setup_logging()
 
 class ReviewManager:
-    """Manages the review process across different review agents."""
+    """Manages the collaborative review process for pull requests."""
     
     def __init__(self):
         self.github_client = Github(GITHUB_TOKEN)
         self.repo = self.github_client.get_repo(REPO_NAME)
-        self.agents = {
-            'documentation': DocumentationReviewAgent(),
-            'code_quality': CodeQualityAgent(),
-            'test_coverage': TestCoverageAgent(),
-            'dependencies': DependencyReviewAgent()
-        }
+        self.orchestrator = ReviewOrchestrator()
 
-    def review_pr(self, pr_number: Optional[int] = None, review_types: Optional[List[str]] = None):
+    def review_pr(self, pr_number: Optional[int] = None):
         """
-        Reviews pull requests using specified review types.
+        Reviews pull requests using a collaborative approach among review agents.
         
         Args:
-            pr_number: Optional PR number to review
-            review_types: List of review types to perform ('all' or specific types)
+            pr_number: Optional PR number to review. If not provided, reviews all open PRs.
         """
         # Get pull requests to review
         if pr_number:
@@ -49,12 +40,9 @@ class ReviewManager:
         else:
             pull_requests = get_open_pull_requests(self.repo)
 
-        # Determine which review types to run
-        available_review_types = list(self.agents.keys())
-        if not review_types or 'all' in review_types:
-            review_types = available_review_types
-        else:
-            review_types = [rt for rt in review_types if rt in available_review_types]
+        if not pull_requests:
+            logger.info("No open pull requests found.")
+            return
 
         for pr in pull_requests:
             try:
@@ -68,78 +56,79 @@ class ReviewManager:
 
                 previous_comments = get_previous_comments(pr)
 
-                # Run each selected review type
-                for review_type in review_types:
-                    try:
-                        self._perform_review(pr, diff, previous_comments, review_type)
-                    except Exception as e:
-                        logger.error(
-                            f"Error performing {review_type} review for PR #{pr.number}: {e}", 
-                            exc_info=True
-                        )
+                # Create review context
+                review_context = ReviewContext(pr, diff, previous_comments)
+
+                # Conduct collaborative review
+                try:
+                    logger.info(f"Starting collaborative review for PR #{pr.number}")
+                    final_review = self.orchestrator.conduct_collaborative_review(review_context)
+                    
+                    if final_review.strip():
+                        post_review_comment(pr, final_review)
+                        logger.info(f"Posted collaborative review for PR #{pr.number}")
+                    else:
+                        logger.warning(f"Empty review generated for PR #{pr.number}")
+                        
+                except Exception as e:
+                    logger.error(
+                        f"Error during collaborative review for PR #{pr.number}: {e}", 
+                        exc_info=True
+                    )
 
             except Exception as e:
                 logger.error(f"Error processing PR #{pr.number}: {e}", exc_info=True)
 
-    def _perform_review(self, pr, diff: str, previous_comments: str, review_type: str):
+    def get_review_statistics(self) -> Dict:
         """
-        Performs a specific type of review on a pull request.
+        Gets statistics about the review process.
         
-        Args:
-            pr: Pull request object
-            diff: The pull request diff
-            previous_comments: Previous review comments
-            review_type: Type of review to perform
+        Returns:
+            Dict containing review statistics
         """
-        logger.info(f"Performing {review_type} review for PR #{pr.number}")
-        
-        agent = self.agents[review_type]
-        review = None
-
-        if review_type == 'documentation':
-            review = agent.review_documentation(diff, previous_comments)
-        elif review_type == 'code_quality':
-            review = agent.review_code_quality(pr, diff, previous_comments)
-        elif review_type == 'test_coverage':
-            review = agent.review_test_coverage(pr, diff, previous_comments)
-        elif review_type == 'dependencies':
-            review = agent.review_dependencies(pr, diff, previous_comments)
-
-        if review and review.strip():
-            # Format the review with a header indicating the review type
-            formatted_review = f"""
-## {review_type.replace('_', ' ').title()} Review
-
-{review}
-"""
-            post_review_comment(pr, formatted_review)
-            logger.info(f"{review_type} review posted for PR #{pr.number}")
-        else:
-            logger.warning(f"Empty {review_type} review generated for PR #{pr.number}")
+        return {
+            'total_prs_reviewed': len(list(get_open_pull_requests(self.repo))),
+            'agent_stats': self.orchestrator.get_agent_statistics()
+        }
 
 def main():
-    parser = argparse.ArgumentParser(description="AI-powered Pull Request Reviewer")
+    parser = argparse.ArgumentParser(description="AI-powered Collaborative Pull Request Reviewer")
     parser.add_argument(
         "--pr", 
         type=int, 
         help="PR number to review. If not provided, all open PRs will be reviewed."
     )
     parser.add_argument(
-        "--review-types",
-        nargs="+",
-        choices=['all', 'documentation', 'code_quality', 'test_coverage', 'dependencies'],
-        default=['all'],
-        help="Types of reviews to perform. Use 'all' for all review types."
+        "--stats",
+        action="store_true",
+        help="Show review statistics"
     )
     parser.add_argument(
-        "--parallel",
+        "--verbose",
         action="store_true",
-        help="Run reviews in parallel (not implemented yet)"
+        help="Enable verbose logging"
     )
     args = parser.parse_args()
 
+    # Configure verbose logging if requested
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
     manager = ReviewManager()
-    manager.review_pr(args.pr, args.review_types)
+    
+    if args.stats:
+        # Display review statistics
+        stats = manager.get_review_statistics()
+        print("\nReview Statistics:")
+        print(f"Total PRs Reviewed: {stats['total_prs_reviewed']}")
+        print("\nAgent Statistics:")
+        for agent, agent_stats in stats['agent_stats'].items():
+            print(f"\n{agent.title()} Agent:")
+            for key, value in agent_stats.items():
+                print(f"  {key}: {value}")
+    else:
+        # Conduct PR review
+        manager.review_pr(args.pr)
 
 if __name__ == "__main__":
     main()
