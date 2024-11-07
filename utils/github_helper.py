@@ -6,6 +6,7 @@ from config import GITHUB_TOKEN
 from typing import List, Dict, Optional, Union
 import re
 from datetime import datetime, timedelta
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -584,3 +585,32 @@ def analyze_dependencies(pr: PullRequest) -> Dict:
     except Exception as e:
         logger.error(f"Error analyzing dependencies: {e}")
         return {}
+
+def format_review_comment(review_type: str, content: Union[str, Dict]) -> str:
+    """Formats a review section for GitHub comment."""
+    if isinstance(content, dict):
+        if review_type == 'security':
+            return format_security_review(content)
+        return json.dumps(content, indent=2)
+    return str(content)
+
+def format_security_review(security_review: Dict) -> str:
+    """Formats security review findings for GitHub comment."""
+    output = []
+    
+    if security_review.get('vulnerabilities'):
+        output.append("### 🔒 Security Vulnerabilities\n")
+        for vuln in security_review['vulnerabilities']:
+            output.append(f"- **{vuln['severity']}**: {vuln['description']}")
+            output.append(f"  - File: `{vuln['file']}` Line: {vuln['line']}\n")
+    
+    if security_review.get('recommendations'):
+        output.append("### 📋 Recommendations\n")
+        for rec in security_review['recommendations']:
+            output.append(f"#### {rec['title']} ({rec['priority']})")
+            output.append(f"{rec['description']}\n")
+            for item in rec['items']:
+                output.append(f"- {item}")
+            output.append("")
+    
+    return "\n".join(output)

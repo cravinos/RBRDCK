@@ -13,7 +13,7 @@ class DependencyReviewAgent(BaseReviewAgent):
     def __init__(self):
         super().__init__()
 
-    def review_dependencies(self, pr: PullRequest, diff: str, previous_comments: str) -> str:
+    async def review_dependencies(self, pr: PullRequest, diff: str, previous_comments: str) -> str:
         """
         Reviews dependency changes in the pull request.
         
@@ -27,7 +27,7 @@ class DependencyReviewAgent(BaseReviewAgent):
         """
         try:
             # Get relevant files for dependency review
-            relevant_diffs = self.get_relevant_files(diff, [
+            relevant_diffs = await self.get_relevant_files(diff, [
                 'requirements.txt', 'setup.py', 'Pipfile', 'pyproject.toml',  # Python
                 'package.json', 'package-lock.json', 'yarn.lock',  # Node.js
                 'pom.xml', 'build.gradle', '*.csproj',  # Java/C#
@@ -38,19 +38,19 @@ class DependencyReviewAgent(BaseReviewAgent):
             if not relevant_diffs:
                 return "No dependency files found to review."
 
-            formatted_diff = self.format_diff_for_review(relevant_diffs)
+            formatted_diff = await self.format_diff_for_review(relevant_diffs)
             
             # Get dependency analysis
             dependency_analysis = analyze_dependencies(pr)
             prompt = self.create_dependency_prompt(formatted_diff, previous_comments, dependency_analysis)
             
-            response = self.llm.call(prompt)
-            if not response.strip():
+            response = await self.llm.call(prompt)
+            if not response or not response.strip():
                 logger.error("Empty dependency review generated.")
                 return "Error: Dependency review returned an empty response."
             return response
         except Exception as e:
-            logger.error(f"Error generating dependency review: {e}", exc_info=True)
+            logger.error(f"Error generating dependency review: {e}")
             return f"Error generating dependency review: {str(e)}"
 
     def create_dependency_prompt(self, diff: str, previous_comments: str, analysis: Dict) -> str:

@@ -1,109 +1,148 @@
 # main.py
 
-import logging
-import sys
+from typing import Dict, List, Union
 from github import Github
-from config import GITHUB_TOKEN, REPO_NAME, LOG_FORMAT, LOG_LEVEL
-from utils.github_helper import (
-    get_open_pull_requests,
-    get_pull_request_diff,
-    post_review_comment,
-    get_previous_comments
-)
-from llm.ollama_llm import OllamaLLM
-from prompts.prompt_templates import (
-    create_review_prompt,
-    create_documentation_review_prompt
-)
+from github.PullRequest import PullRequest
+import logging
+import json
+from agents.review_orchestrator import ReviewOrchestrator, ReviewContext
 from agents.documentation_review_agent import DocumentationReviewAgent
+from agents.code_quality_agent import CodeQualityAgent
+from agents.test_coverage_agent import TestCoverageAgent
+from agents.dependency_review_agent import DependencyReviewAgent
+from agents.security_agent import SecurityAgent
+from llm.ollama_llm import OllamaLLM
+from utils.github_helper import parse_review_comments
+from config import GITHUB_TOKEN
 
-# Configure logging to output to both console and file
-def setup_logging():
-    logger = logging.getLogger()
-    logger.setLevel(LOG_LEVEL)
+logger = logging.getLogger(__name__)
 
-    # Create console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(LOG_LEVEL)
-    console_formatter = logging.Formatter(LOG_FORMAT)
-    console_handler.setFormatter(console_formatter)
+class ReviewManager:
+    def __init__(self):
+        if not GITHUB_TOKEN:
+            raise ValueError("GitHub token not found. Please set GITHUB_TOKEN in .env file")
+            
+        self.github = Github(GITHUB_TOKEN)
+        self.orchestrator = ReviewOrchestrator()
+        self.llm = OllamaLLM()
+        
+        # Initialize and register agents with orchestrator
+        self.orchestrator.register_agent('documentation', DocumentationReviewAgent())
+        self.orchestrator.register_agent('code_quality', CodeQualityAgent())
+        self.orchestrator.register_agent('test_coverage', TestCoverageAgent())
+        self.orchestrator.register_agent('dependencies', DependencyReviewAgent())
+        self.orchestrator.register_agent('security', SecurityAgent())
+        logger.info("ReviewManager initialized successfully")
 
-    # Create file handler
-    file_handler = logging.FileHandler('pr_reviewer.log')
-    file_handler.setLevel(LOG_LEVEL)
-    file_formatter = logging.Formatter(LOG_FORMAT)
-    file_handler.setFormatter(file_formatter)
+    @classmethod
+    async def create(cls):
+        """Factory method to create and initialize ReviewManager with async operations"""
+        manager = cls()
+        if not await manager.llm.check_connection():
+            raise RuntimeError("Ollama service is not running. Please start Ollama first.")
+        return manager
 
-    # Add both handlers to the logger
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
-
-    return logger
-
-# Call setup_logging at the start of your script
-logger = setup_logging()
-
-def setup_agents():
-    llm = OllamaLLM()
-    documentation_agent = DocumentationReviewAgent()
-    return llm, documentation_agent
-
-def perform_code_review(pr, diff, previous_comments, llm):
-    code_review_prompt = create_review_prompt(diff, previous_comments)
-    code_review = llm.call(code_review_prompt)
-    if code_review.strip():
-        post_review_comment(pr, f"**Code Review:**\n\n{code_review}")
-        logger.info(f"Posted code review for PR #{pr.number}")
-    else:
-        logger.warning(f"No code review generated for PR #{pr.number}")
-
-def perform_documentation_review(pr, diff, previous_comments, documentation_agent):
-    documentation_review = documentation_agent.review_documentation(diff, previous_comments)
-    if documentation_review.strip():
-        post_review_comment(pr, f"**Documentation Review:**\n\n{documentation_review}")
-        logger.info(f"Posted documentation review for PR #{pr.number}")
-    else:
-        logger.warning(f"No documentation review generated for PR #{pr.number}")
-
-def review_pr(pr_number=None, review_docs=False):
-    github_client = Github(GITHUB_TOKEN)
-    repo = github_client.get_repo(REPO_NAME)
-    llm, documentation_agent = setup_agents()
-
-    if pr_number:
-        pull_requests = [repo.get_pull(pr_number)]
-    else:
-        pull_requests = get_open_pull_requests(repo)
-
-    for pr in pull_requests:
+    async def review_pr(self, repo_name: str, pr_number: int, options: Dict = None):
+        """Review a pull request with all available agents"""
         try:
-            logger.info(f"Reviewing PR #{pr.number}: {pr.title}")
-            diff = get_pull_request_diff(pr)
-            if not diff:
-                logger.warning(f"No diff found for PR #{pr.number}")
-                continue
-
-            # Fetch previous comments
-            previous_comments = get_previous_comments(pr)
-            logger.debug(f"Fetched previous comments for PR #{pr.number}")
-
-            # Perform Code Review
-            perform_code_review(pr, diff, previous_comments, llm)
-
-            # Perform Documentation Review if enabled
-            if review_docs:
-                perform_documentation_review(pr, diff, previous_comments, documentation_agent)
-
+            # Get PR details
+            repo = self.github.get_repo(repo_name)
+            pr = repo.get_pull(pr_number)
+            
+            # Get PR diff as text
+            files = pr.get_files()
+            if not files:
+                raise ValueError("No files found in pull request")
+                
+            # Get patches from all files
+            diff_text = ""
+            for file in files:
+                if hasattr(file, 'patch') and file.patch:
+                    diff_text += f"diff --git a/{file.filename} b/{file.filename}\n"
+                    diff_text += file.patch + "\n"
+            
+            if not diff_text:
+                raise ValueError("No diff content found in pull request")
+                
+            previous_comments = [comment.body for comment in pr.get_comments()]
+            
+            # Create review context
+            context = ReviewContext(pr, diff_text, "\n".join(previous_comments))
+            
+            # Conduct review through orchestrator
+            review_results = await self.orchestrator.conduct_review(context)
+            
+            # Post results to GitHub
+            await self._post_review_to_github(pr, review_results)
+            
+            return review_results
+            
         except Exception as e:
-            logger.error(f"Error processing PR #{pr.number}: {e}", exc_info=True)
+            logger.error(f"Error reviewing PR #{pr_number}: {e}")
+            raise
+            
+    async def _post_review_to_github(self, pr: PullRequest, review_results: Dict):
+        """Posts review results as comments on GitHub PR."""
+        try:
+            # First, post a general review comment
+            review_body = "# AI Code Review Results\n\n"
+            
+            for agent_type, review in review_results['reviews'].items():
+                if isinstance(review, dict) and review.get('status') == 'error':
+                    continue
+                    
+                if isinstance(review, dict) and agent_type == 'security':
+                    # Add security findings to the main review
+                    review_body += f"\n## 🔒 Security Review\n\n"
+                    for vuln in review.get('vulnerabilities', []):
+                        review_body += f"- **{vuln['severity']} Severity Issue** in `{vuln['file']}` line {vuln['line']}\n"
+                        review_body += f"  - {vuln['description']}\n"
+                    
+                    if review.get('recommendations'):
+                        review_body += "\n### Recommendations:\n"
+                        for rec in review['recommendations']:
+                            review_body += f"\n#### {rec['title']} (Priority: {rec['priority']})\n"
+                            review_body += f"{rec['description']}\n"
+                            for item in rec['items']:
+                                review_body += f"- {item}\n"
+                else:
+                    # Add other reviews
+                    review_body += f"\n## {agent_type.replace('_', ' ').title()} Review\n\n"
+                    review_body += str(review) + "\n"
+            
+            # Create the review without inline comments
+            pr.create_review(
+                body=review_body,
+                event='COMMENT'
+            )
+            
+            # Post security issues as separate comments
+            if isinstance(review_results['reviews'].get('security'), dict):
+                security_review = review_results['reviews']['security']
+                for vuln in security_review.get('vulnerabilities', []):
+                    try:
+                        pr.create_issue_comment(
+                            f"🔒 **Security Issue Detected**\n\n"
+                            f"**Severity:** {vuln['severity']}\n"
+                            f"**File:** `{vuln['file']}`\n"
+                            f"**Line:** {vuln['line']}\n\n"
+                            f"**Description:** {vuln['description']}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to create security comment: {e}")
+        
+        except Exception as e:
+            logger.error(f"Error posting review to GitHub: {e}")
+            raise
 
-def main():
-    parser = argparse.ArgumentParser(description="AI-powered Pull Request Reviewer")
-    parser.add_argument("--pr", type=int, help="PR number to review. If not provided, all open PRs will be reviewed.")
-    parser.add_argument("--review-docs", action="store_true", help="Enable documentation review")
-    args = parser.parse_args()
-
-    review_pr(args.pr, args.review_docs)
+async def main():
+    try:
+        review_manager = await ReviewManager.create()
+        results = await review_manager.review_pr("owner/repo", 123)
+        print(json.dumps(results, indent=2))
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
+        raise
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

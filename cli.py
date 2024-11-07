@@ -1,134 +1,126 @@
 # cli.py
-from typing import Dict, List, Optional
-import argparse
+import click
+import json
+import asyncio
 import logging
-from github import Github
-from config import GITHUB_TOKEN, REPO_NAME, LOG_FORMAT, LOG_LEVEL
-from utils.github_helper import (
-    get_open_pull_requests,
-    get_pull_request_diff,
-    post_review_comment,
-    get_previous_comments
+from pathlib import Path
+from typing import Dict
+from main import ReviewManager
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-from agents.review_orchestrator import ReviewOrchestrator, ReviewContext
+logger = logging.getLogger(__name__)
 
-def setup_logging():
-    """Configures logging for the application."""
-    logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
-    return logging.getLogger(__name__)
+@click.group()
+def cli():
+    """RBRDCK - Advanced Code Review Tool"""
+    pass
 
-logger = setup_logging()
-
-class ReviewManager:
-    """Manages the collaborative review process for pull requests."""
-    
-    def __init__(self):
-        self.github_client = Github(GITHUB_TOKEN)
-        self.repo = self.github_client.get_repo(REPO_NAME)
-        self.orchestrator = ReviewOrchestrator()
-
-    def review_pr(self, pr_number: Optional[int] = None):
-        """
-        Reviews pull requests using a collaborative approach among review agents.
-        
-        Args:
-            pr_number: Optional PR number to review. If not provided, reviews all open PRs.
-        """
-        # Get pull requests to review
-        if pr_number:
-            pull_requests = [self.repo.get_pull(pr_number)]
-        else:
-            pull_requests = get_open_pull_requests(self.repo)
-
-        if not pull_requests:
-            logger.info("No open pull requests found.")
-            return
-
-        for pr in pull_requests:
-            try:
-                logger.info(f"Reviewing PR #{pr.number}: {pr.title}")
+@cli.command()
+@click.argument('repo', type=str)
+@click.argument('pr_number', type=int)
+@click.option('-o', '--output', type=click.Path(), help='Save review to file')
+def review(repo: str, pr_number: int, output: str = None):
+    """Review a specific pull request"""
+    async def _review():
+        try:
+            review_manager = await ReviewManager.create()
+            results = await review_manager.review_pr(repo, pr_number)
+            
+            if output:
+                Path(output).write_text(json.dumps(results, indent=2))
+                click.echo(f"Review saved to {output}")
+            else:
+                click.echo(json.dumps(results, indent=2))
                 
-                # Get PR context
-                diff = get_pull_request_diff(pr)
-                if not diff:
-                    logger.warning(f"No diff found for PR #{pr.number}")
-                    continue
+        except Exception as e:
+            logger.error(f"Error reviewing PR: {e}")
+            click.echo(f"Error: {str(e)}", err=True)
+            raise click.Abort()
+    
+    asyncio.run(_review())
 
-                previous_comments = get_previous_comments(pr)
-
-                # Create review context
-                review_context = ReviewContext(pr, diff, previous_comments)
-
-                # Conduct collaborative review
-                try:
-                    logger.info(f"Starting collaborative review for PR #{pr.number}")
-                    final_review = self.orchestrator.conduct_collaborative_review(review_context)
-                    
-                    if final_review.strip():
-                        post_review_comment(pr, final_review)
-                        logger.info(f"Posted collaborative review for PR #{pr.number}")
-                    else:
-                        logger.warning(f"Empty review generated for PR #{pr.number}")
-                        
-                except Exception as e:
-                    logger.error(
-                        f"Error during collaborative review for PR #{pr.number}: {e}", 
-                        exc_info=True
-                    )
-
-            except Exception as e:
-                logger.error(f"Error processing PR #{pr.number}: {e}", exc_info=True)
-
-    def get_review_statistics(self) -> Dict:
-        """
-        Gets statistics about the review process.
+@cli.command()
+@click.argument('repo')
+@click.option('--days', default=7, help='Number of days to analyze')
+@click.option('--output', '-o', type=click.Path(),
+              help='Save insights to file')
+def insights(repo: str, days: int, output: str):
+    """Generate insights report"""
+    try:
+        review_manager = ReviewManager()
+        report = review_manager.get_insights(days)
         
-        Returns:
-            Dict containing review statistics
-        """
-        return {
-            'total_prs_reviewed': len(list(get_open_pull_requests(self.repo))),
-            'agent_stats': self.orchestrator.get_agent_statistics()
-        }
+        # Format report
+        formatted_report = json.dumps(report, indent=2)
+        
+        # Output report
+        if output:
+            output_path = Path(output)
+            output_path.write_text(formatted_report)
+            click.echo(f"Insights saved to {output}")
+        else:
+            click.echo(formatted_report)
+            
+    except Exception as e:
+        logger.error(f"Error generating insights: {e}")
+        click.echo(f"Error: {str(e)}", err=True)
+        raise click.Abort()
+
+@cli.command()
+@click.argument('repo')
+@click.option('--webhook-url', required=True,
+              help='Webhook URL for notifications')
+def setup(repo: str, webhook_url: str):
+    """Setup integrations for a repository"""
+    async def _setup():
+        try:
+            review_manager = await ReviewManager.create()
+            results = await review_manager.setup_repository(repo, webhook_url)
+            
+            # Output results
+            for integration, status in results.items():
+                click.echo(f"{integration} integration setup: {status}")
+                
+        except Exception as e:
+            logger.error(f"Error setting up repository: {e}")
+            click.echo(f"Error: {str(e)}", err=True)
+            raise click.Abort()
+    
+    asyncio.run(_setup())
+
+@cli.command()
+@click.argument('repo')
+def status(repo: str):
+    """Check status of integrations and services"""
+    try:
+        review_manager = ReviewManager()
+        
+        # Check integration status
+        click.echo("Integration Status:")
+        for integration, status in review_manager.integration_hub._integrations.items():
+            click.echo(f"- {integration}: {'Active' if status else 'Inactive'}")
+            
+        # Check analytics status
+        click.echo("\nAnalytics Status:")
+        metrics = review_manager.usage_analytics.get_usage_statistics()
+        click.echo(json.dumps(metrics, indent=2))
+        
+    except Exception as e:
+        logger.error(f"Error checking status: {e}")
+        click.echo(f"Error: {str(e)}", err=True)
+        raise click.Abort()
 
 def main():
-    parser = argparse.ArgumentParser(description="AI-powered Collaborative Pull Request Reviewer")
-    parser.add_argument(
-        "--pr", 
-        type=int, 
-        help="PR number to review. If not provided, all open PRs will be reviewed."
-    )
-    parser.add_argument(
-        "--stats",
-        action="store_true",
-        help="Show review statistics"
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging"
-    )
-    args = parser.parse_args()
+    try:
+        asyncio.run(cli())
+    except Exception as e:
+        logger.error(f"CLI error: {e}")
+        click.echo(f"Error: {str(e)}", err=True)
+        raise click.Abort()
 
-    # Configure verbose logging if requested
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-
-    manager = ReviewManager()
-    
-    if args.stats:
-        # Display review statistics
-        stats = manager.get_review_statistics()
-        print("\nReview Statistics:")
-        print(f"Total PRs Reviewed: {stats['total_prs_reviewed']}")
-        print("\nAgent Statistics:")
-        for agent, agent_stats in stats['agent_stats'].items():
-            print(f"\n{agent.title()} Agent:")
-            for key, value in agent_stats.items():
-                print(f"  {key}: {value}")
-    else:
-        # Conduct PR review
-        manager.review_pr(args.pr)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
