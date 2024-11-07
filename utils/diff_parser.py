@@ -1,85 +1,54 @@
 # utils/diff_parser.py
-from typing import Dict, List, NamedTuple
-import re
+from dataclasses import dataclass
+from typing import Dict, List
+import fnmatch
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
-class FileDiff(NamedTuple):
-    filename: str
+@dataclass
+class FileDiff:
     content: str
-    added_lines: List[int]
-    removed_lines: List[int]
-    modified_lines: List[int]
+    added_lines: int
+    removed_lines: int
+    modified_lines: int
 
 class DiffParser:
     """Parser for git diff output to extract meaningful file changes."""
     
     @staticmethod
-    def parse_diff(diff_text: str) -> Dict[str, FileDiff]:
+    async def parse_diff(diff_text: str) -> Dict[str, FileDiff]:
         """
         Parses a git diff string into structured file changes.
         """
-        diffs = {}
-        current_file = None
-        current_content = []
-        line_numbers = {'added': [], 'removed': [], 'modified': []}
-        old_start = new_start = 0
-        
-        for line in diff_text.split('\n'):
-            # New file diff starts
-            if line.startswith('diff --git'):
-                if current_file:
-                    # Store previous file diff
-                    diffs[current_file] = FileDiff(
-                        filename=current_file,
-                        content='\n'.join(current_content),
-                        added_lines=line_numbers['added'],
-                        removed_lines=line_numbers['removed'],
-                        modified_lines=line_numbers['modified']
-                    )
-                # Reset for new file
-                current_file = re.search(r'b/(.+)$', line).group(1)
-                current_content = []
-                line_numbers = {'added': [], 'removed': [], 'modified': []}
+        try:
+            if isinstance(diff_text, (list, tuple)):
+                diff_text = "\n".join(str(line) for line in diff_text)
+            elif not isinstance(diff_text, str):
+                diff_text = str(diff_text)
                 
-            elif line.startswith('+++') or line.startswith('---'):
-                continue
-                
-            elif line.startswith('@@'):
-                # Parse hunk header for line numbers
-                match = re.match(r'@@ -(\d+),?(\d+)? \+(\d+),?(\d+)? @@', line)
-                if match:
-                    old_start = int(match.group(1))
-                    new_start = int(match.group(3))
-                    
-            elif current_file:
-                current_content.append(line)
-                if line.startswith('+'):
-                    line_numbers['added'].append(new_start)
-                    new_start += 1
-                elif line.startswith('-'):
-                    line_numbers['removed'].append(old_start)
-                    old_start += 1
-                else:
-                    if old_start == new_start:
-                        line_numbers['modified'].append(old_start)
-                    old_start += 1
-                    new_start += 1
-        
-        # Add last file
-        if current_file:
-            diffs[current_file] = FileDiff(
-                filename=current_file,
-                content='\n'.join(current_content),
-                added_lines=line_numbers['added'],
-                removed_lines=line_numbers['removed'],
-                modified_lines=line_numbers['modified']
-            )
+            diffs = {}
+            current_file = None
+            current_content = []
             
-        return diffs
+            for line in diff_text.split('\n'):
+                if line.startswith('diff --git'):
+                    if current_file:
+                        diffs[current_file] = FileDiff("\n".join(current_content))
+                    current_file = line.split()[-1].lstrip('b/')
+                    current_content = []
+                current_content.append(line)
+                
+            if current_file:
+                diffs[current_file] = FileDiff("\n".join(current_content))
+                
+            return diffs
+        except Exception as e:
+            logger.error(f"Error parsing diff content: {e}")
+            return {}
 
-    def get_relevant_diff_content(self, diff_text: str, file_patterns: List[str]) -> Dict[str, FileDiff]:
+    async def get_relevant_diff_content(self, diff_text: str, patterns: List[str]) -> Dict[str, FileDiff]:
         """
         Gets relevant diff content filtered by file patterns.
         
@@ -90,11 +59,69 @@ class DiffParser:
         Returns:
             Dict of relevant file diffs
         """
-        all_diffs = self.parse_diff(diff_text)
-        relevant_diffs = {}
-        
-        for filename, file_diff in all_diffs.items():
-            if any(re.match(pattern.replace('*', '.*'), filename) for pattern in file_patterns):
-                relevant_diffs[filename] = file_diff
+        try:
+            if not diff_text:
+                return {}
                 
-        return relevant_diffs
+            all_diffs = self._parse_diff(diff_text)
+            relevant_diffs = {}
+            
+            for filename, diff in all_diffs.items():
+                if any(fnmatch.fnmatch(filename, pattern) for pattern in patterns):
+                    relevant_diffs[filename] = diff
+                    
+            return relevant_diffs
+        except Exception as e:
+            logger.error(f"Error parsing diff: {e}")
+            return {}
+            
+    def _parse_diff(self, diff_text: str) -> Dict[str, FileDiff]:
+        """Parses git diff output into structured format."""
+        try:
+            diffs = {}
+            current_file = None
+            current_content = []
+            added_lines = 0
+            removed_lines = 0
+            modified_lines = 0
+            
+            for line in diff_text.split('\n'):
+                if line.startswith('diff --git'):
+                    if current_file:
+                        # Create FileDiff for previous file
+                        diffs[current_file] = FileDiff(
+                            content='\n'.join(current_content),
+                            added_lines=added_lines,
+                            removed_lines=removed_lines,
+                            modified_lines=modified_lines
+                        )
+                    # Reset for new file
+                    current_file = line.split()[-1].lstrip('b/')
+                    current_content = []
+                    added_lines = 0
+                    removed_lines = 0
+                    modified_lines = 0
+                
+                current_content.append(line)
+                
+                # Count line changes
+                if line.startswith('+') and not line.startswith('+++'):
+                    added_lines += 1
+                elif line.startswith('-') and not line.startswith('---'):
+                    removed_lines += 1
+                elif line.startswith('@@ '):
+                    modified_lines += 1
+            
+            # Don't forget the last file
+            if current_file:
+                diffs[current_file] = FileDiff(
+                    content='\n'.join(current_content),
+                    added_lines=added_lines,
+                    removed_lines=removed_lines,
+                    modified_lines=modified_lines
+                )
+                
+            return diffs
+        except Exception as e:
+            logger.error(f"Error parsing diff content: {e}")
+            return {}

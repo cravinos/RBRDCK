@@ -12,7 +12,7 @@ class DocumentationReviewAgent(BaseReviewAgent):
     def __init__(self):
         super().__init__()
         
-    def review_documentation(self, diff: str, previous_comments: str) -> str:
+    async def review_documentation(self, diff: str, previous_comments: str) -> str:
         """
         Reviews documentation changes in the pull request.
         
@@ -24,7 +24,7 @@ class DocumentationReviewAgent(BaseReviewAgent):
             str: The documentation review
         """
         # Get relevant files for documentation review
-        relevant_diffs = self.get_relevant_files(diff, [
+        relevant_diffs = await self.get_relevant_files(diff, [
             '*.py', '*.js', '*.java',  # Source files
             '*.md', '*.rst', '*.txt',  # Documentation files
             'README*', 'CONTRIBUTING*', 'CHANGELOG*'  # Project docs
@@ -33,7 +33,7 @@ class DocumentationReviewAgent(BaseReviewAgent):
         if not relevant_diffs:
             return "No documentation-related changes found to review."
             
-        formatted_diff = self.format_diff_for_review(relevant_diffs)
+        formatted_diff = await self.format_diff_for_review(relevant_diffs)
         prompt = create_documentation_review_prompt(formatted_diff, previous_comments)
         
-        return self.llm.call(prompt)
+        return await self.llm_call(prompt)

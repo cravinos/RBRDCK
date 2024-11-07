@@ -13,7 +13,7 @@ class TestCoverageAgent(BaseReviewAgent):
     def __init__(self):
         super().__init__()
 
-    def review_test_coverage(self, pr: PullRequest, diff: str, previous_comments: str) -> str:
+    async def review_test_coverage(self, pr: PullRequest, diff: str, previous_comments: str) -> str:
         """
         Reviews test coverage in the pull request.
         
@@ -27,7 +27,7 @@ class TestCoverageAgent(BaseReviewAgent):
         """
         try:
             # Get relevant files for test coverage review
-            relevant_diffs = self.get_relevant_files(diff, [
+            relevant_diffs = await self.get_relevant_files(diff, [
                 '*.py', '*.js', '*.ts', '*.java',  # Source files
                 '*test*.py', '*_test.js', '*.test.ts', '*Test.java',  # Test files
                 'tests/*', '__tests__/*', 'test/*'  # Test directories
@@ -36,19 +36,19 @@ class TestCoverageAgent(BaseReviewAgent):
             if not relevant_diffs:
                 return "No testable files found to review."
 
-            formatted_diff = self.format_diff_for_review(relevant_diffs)
+            formatted_diff = await self.format_diff_for_review(relevant_diffs)
             
             # Get test coverage analysis
             coverage_analysis = get_test_coverage(pr)
             prompt = self.create_test_coverage_prompt(formatted_diff, previous_comments, coverage_analysis)
             
-            response = self.llm.call(prompt)
-            if not response.strip():
+            response = await self.llm.call(prompt)
+            if not response or not response.strip():
                 logger.error("Empty test coverage review generated.")
                 return "Error: Test coverage review returned an empty response."
             return response
         except Exception as e:
-            logger.error(f"Error generating test coverage review: {e}", exc_info=True)
+            logger.error(f"Error generating test coverage review: {e}")
             return f"Error generating test coverage review: {str(e)}"
 
     def create_test_coverage_prompt(self, diff: str, previous_comments: str, analysis: Dict) -> str:

@@ -6,6 +6,11 @@ from agents.documentation_review_agent import DocumentationReviewAgent
 from agents.code_quality_agent import CodeQualityAgent
 from agents.test_coverage_agent import TestCoverageAgent
 from agents.dependency_review_agent import DependencyReviewAgent
+from agents.security_agent import SecurityAgent
+# from agents.performance_agent import PerformanceAgent
+# from agents.architecture_agent import ArchitectureAgent
+# from agents.best_practices_agent import BestPracticesAgent
+# from agents.cost_optimization_agent import CostOptimizationAgent
 from github.PullRequest import PullRequest
 import logging
 
@@ -48,47 +53,62 @@ class ReviewOrchestrator:
     """Orchestrates the collaborative review process between agents."""
     
     def __init__(self):
-        self.agents = {
-            'documentation': DocumentationReviewAgent(),
-            'code_quality': CodeQualityAgent(),
-            'test_coverage': TestCoverageAgent(),
-            'dependencies': DependencyReviewAgent()
-        }
+        self.agents = {}
         
-    def conduct_collaborative_review(self, context: ReviewContext) -> str:
-        """Conducts a collaborative review where agents share insights and build upon each other's findings."""
-        # Phase 1: Initial Reviews
-        self._conduct_initial_reviews(context)
+    def register_agent(self, agent_type: str, agent: BaseReviewAgent):
+        """Registers a review agent."""
+        self.agents[agent_type] = agent
         
-        # Phase 2: Cross-Reference and Enhancement
-        self._enhance_reviews_with_shared_insights(context)
-        
-        # Phase 3: Generate Final Report
-        return self._generate_final_report(context)
-        
-    def _conduct_initial_reviews(self, context: ReviewContext):
+    async def conduct_review(self, context: ReviewContext) -> Dict:
+        """Conducts the full review process."""
+        try:
+            # Conduct initial reviews from all agents
+            await self._conduct_initial_reviews(context)
+            
+            # Get all reviews and insights
+            results = {
+                "reviews": context.get_all_reviews(),
+                "insights": context.get_insights(),
+                "status": "success"
+            }
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error conducting review: {e}")
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+            
+    async def _conduct_initial_reviews(self, context: ReviewContext):
         """Conducts initial reviews from all agents."""
         for agent_type, agent in self.agents.items():
             try:
                 review = None
                 if agent_type == 'documentation':
-                    review = agent.review_documentation(context.diff, context.previous_comments)
+                    review = await agent.review_documentation(context.diff, context.previous_comments)
                 elif agent_type == 'code_quality':
-                    review = agent.review_code_quality(context.pr, context.diff, context.previous_comments)
+                    review = await agent.review_code_quality(context.pr, context.diff, context.previous_comments)
                 elif agent_type == 'test_coverage':
-                    review = agent.review_test_coverage(context.pr, context.diff, context.previous_comments)
+                    review = await agent.review_test_coverage(context.pr, context.diff, context.previous_comments)
                 elif agent_type == 'dependencies':
-                    review = agent.review_dependencies(context.pr, context.diff, context.previous_comments)
-                    
-                context.add_review(agent_type, review)
+                    review = await agent.review_dependencies(context.pr, context.diff, context.previous_comments)
+                elif agent_type == 'security':
+                    review = await agent.review_security(context.pr, context.diff, context.previous_comments)
                 
-                # Extract key insights if review is in dictionary format
-                if isinstance(review, dict):
-                    self._share_agent_insights(agent_type, review, context)
+                if review is not None:
+                    context.add_review(agent_type, review)
+                    if isinstance(review, dict):
+                        self._share_agent_insights(agent_type, review, context)
                     
             except Exception as e:
                 logger.error(f"Error in {agent_type} review: {e}", exc_info=True)
-                
+                context.add_review(agent_type, {
+                    "status": "error",
+                    "message": str(e)
+                })
+
     def _share_agent_insights(self, agent_type: str, review: Dict, context: ReviewContext):
         """Extracts and shares key insights from an agent's review."""
         try:
@@ -112,6 +132,36 @@ class ReviewOrchestrator:
                     context.add_insight('dependencies', {
                         'type': 'security_concerns',
                         'alerts': review['security_alerts']
+                    })
+            elif agent_type == 'security':
+                if review.get('security_concerns'):
+                    context.add_insight('security', {
+                        'type': 'security_concerns',
+                        'concerns': review['security_concerns']
+                    })
+            elif agent_type == 'performance':
+                if review.get('performance_issues'):
+                    context.add_insight('performance', {
+                        'type': 'performance_issues',
+                        'issues': review['performance_issues']
+                    })
+            elif agent_type == 'architecture':
+                if review.get('architecture_issues'):
+                    context.add_insight('architecture', {
+                        'type': 'architecture_issues',
+                        'issues': review['architecture_issues']
+                    })
+            elif agent_type == 'best_practices':
+                if review.get('best_practices_issues'):
+                    context.add_insight('best_practices', {
+                        'type': 'best_practices_issues',
+                        'issues': review['best_practices_issues']
+                    })
+            elif agent_type == 'cost_optimization':
+                if review.get('cost_optimization_issues'):
+                    context.add_insight('cost_optimization', {
+                        'type': 'cost_optimization_issues',
+                        'issues': review['cost_optimization_issues']
                     })
         except Exception as e:
             logger.error(f"Error sharing insights for {agent_type}: {e}")
@@ -239,6 +289,16 @@ class ReviewOrchestrator:
                 concerns.append("- High code complexity may affect maintainability and testing effort")
             elif insight['agent'] == 'dependencies' and insight['insight']['type'] == 'security_concerns':
                 concerns.append("- Security vulnerabilities in dependencies require immediate attention")
+            elif insight['agent'] == 'security' and insight['insight']['type'] == 'security_concerns':
+                concerns.append("- Security concerns require immediate attention")
+            elif insight['agent'] == 'performance' and insight['insight']['type'] == 'performance_issues':
+                concerns.append("- Performance issues require immediate attention")
+            elif insight['agent'] == 'architecture' and insight['insight']['type'] == 'architecture_issues':
+                concerns.append("- Architecture issues require immediate attention")
+            elif insight['agent'] == 'best_practices' and insight['insight']['type'] == 'best_practices_issues':
+                concerns.append("- Best practices issues require immediate attention")
+            elif insight['agent'] == 'cost_optimization' and insight['insight']['type'] == 'cost_optimization_issues':
+                concerns.append("- Cost optimization issues require immediate attention")
                 
         return "\n".join(concerns) if concerns else "No significant cross-cutting concerns identified."
 

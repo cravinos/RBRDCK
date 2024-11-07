@@ -13,23 +13,43 @@ class BaseReviewAgent:
         self.diff_parser = DiffParser()
         self.llm = OllamaLLM()
         
-    def get_relevant_files(self, diff: str, patterns: List[str]) -> Dict[str, FileDiff]:
+    async def get_relevant_files(self, diff: str, patterns: List[str]) -> Dict[str, FileDiff]:
         """Gets relevant file changes for this agent's review."""
-        return self.diff_parser.get_relevant_diff_content(diff, patterns)
+        try:
+            result = await self.diff_parser.get_relevant_diff_content(diff, patterns)
+            return result
+        except Exception as e:
+            logger.error(f"Error getting relevant files: {e}")
+            return {}
         
-    def format_diff_for_review(self, diffs: Dict[str, FileDiff]) -> str:
+    async def format_diff_for_review(self, diffs: Dict[str, FileDiff]) -> str:
         """Formats diff content for LLM review."""
-        formatted = []
-        for filename, diff in diffs.items():
-            formatted.append(f"File: {filename}")
-            formatted.append("```")
-            formatted.append(diff.content)
-            formatted.append("```")
-            formatted.append(f"Added lines: {diff.added_lines}")
-            formatted.append(f"Removed lines: {diff.removed_lines}")
-            formatted.append(f"Modified lines: {diff.modified_lines}")
-            formatted.append("")
-        return "\n".join(formatted)
+        try:
+            formatted = []
+            for filename, diff in diffs.items():
+                formatted.append(f"File: {filename}")
+                formatted.append("```")
+                formatted.append(diff.content)
+                formatted.append("```")
+                formatted.append(f"Added lines: {diff.added_lines}")
+                formatted.append(f"Removed lines: {diff.removed_lines}")
+                formatted.append(f"Modified lines: {diff.modified_lines}")
+                formatted.append("")
+            return "\n".join(formatted)
+        except Exception as e:
+            logger.error(f"Error formatting diff: {e}")
+            return ""
+
+    async def llm_call(self, prompt: str) -> str:
+        """Async wrapper for LLM calls"""
+        try:
+            response = await self.llm.call(prompt)
+            if not response or not isinstance(response, str):
+                return "Error: Invalid response from LLM"
+            return response
+        except Exception as e:
+            logger.error(f"Error in LLM call: {e}")
+            return f"Error: {str(e)}"
 
     def _validate_response(self, response: str) -> bool:
         """Validates if the response is meaningful."""
